@@ -81,8 +81,8 @@
 /*Opera 12: http://stackoverflow.com/questions/11642926/stop-close-webcam-which-is-opened-by-navigator-getusermedia
                 element.pause();
                 element.src = null; *./
-            }
 */
+            }
     }
 
     function createPeerConnection(opts) {
