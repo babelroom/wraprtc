@@ -1,10 +1,10 @@
 /* JR 5/2013 - parts of code borrowed heavily from other projects - see README */
 (function(window) {
     var supported = null
+        , version = null
         , getUserMedia = null
-        , _stopUserMedia = null     /* our non-standard addition */
+        , _stopUserMedia = null     /* BR: our non-standard addition */
         , attachMediaStream = null
-        // Set up audio and video regardless of what devices are present.
         , sdpConstraints = {'mandatory': {
                           'OfferToReceiveAudio':true, 
                           'OfferToReceiveVideo':true }}
@@ -14,7 +14,7 @@
     function init() {
         if (navigator.mozGetUserMedia) {
             supported = "firefox";
-            RTCPeerConnection = function(){return mozRTCPeerConnection();}
+            RTCPeerConnection = function(){return mozRTCPeerConnection(/* note no arguments */);}
             RTCSessionDescription = mozRTCSessionDescription;
             RTCIceCandidate = mozRTCIceCandidate;
             getUserMedia = navigator.mozGetUserMedia.bind(navigator);
@@ -23,7 +23,6 @@
                 element.mozSrcObject = null;
                 };
             attachMediaStream = function(element, stream) {
-//                console.log("Attaching media stream");
                 element.mozSrcObject = stream;
                 element.play();
                 };
@@ -37,6 +36,7 @@
             }
         else if (navigator.webkitGetUserMedia) {
             supported = "chrome";
+            version = parseInt(navigator.userAgent.match(/Chrom(e|ium)\/([0-9]+)\./)[2]);
             getUserMedia = navigator.webkitGetUserMedia.bind(navigator);
             _stopUserMedia = function(element, stream) {
                 element.pause();
@@ -63,7 +63,8 @@
                     };
                 }
 
-/*
+/* these methods are currently unused -- therefore commented out
+            
             // New syntax of getXXXStreams method in M26.
             if (!webkitRTCPeerConnection.prototype.getLocalStreams) {
                 webkitRTCPeerConnection.prototype.getLocalStreams = function() {
@@ -85,110 +86,76 @@
             }
     }
 
+    function fireOnce(en, pc, opts) {
+        var fn = opts[en];
+        if (typeof(fn)==='undefined') return false;
+        var fl = "_br_"+en;
+        if (pc[fl]) return false;
+        fn.call(opts);
+        pc[fl] = true;
+    }
+
     function createPeerConnection(opts) {
         /*  https://groups.google.com/forum/#!topic/discuss-webrtc/b-5alYpbxXw
             http://code.google.com/p/natvpn/source/browse/trunk/stun_server_list */
         var pc_config = {"iceServers": [{"url": "stun:stun.l.google.com:19302"}]};
         var pc_constraints = {"optional": [{"DtlsSrtpKeyAgreement": true}]};
         var pc = null;
-        // Force the use of a number IP STUN server for Firefox.
 /*
+    RTCPeerConection() for mozilla actually currently ignores arguments
         if (supported === "firefox") {
-console.log('foo');
             pc_config = {"iceServers":[{"url":"stun:173.194.79.127"/* IP of stun.l.google.com, orig=stun:23.21.150.121*./}]};
             };
 */
         try {
             pc = new RTCPeerConnection(pc_config, pc_constraints);
             opts.setPC && opts.setPC(pc);
-//console.log(pc);
-//var fne = function(event){/*console.log(event);*/ return true;}
+/*
+ -- this just for testing / dev ...
 var fne = function(event,marker){console.log(marker,event); return true;}
 pc.onsignalingstatechange = function(e){fne(e,7);}
 pc.onstatechange = function(e){fne(e,8);}
 pc.onopen = function(e){fne(e,9);}
-//pc.onicechange = fne;
-/*
-*/
-pc.oniceconnectionstatechange = function(event){
-fne(event,22);
-//    console.log(['ICESC',event.type, pc.iceState, pc.iceConnectionState, pc.iceGatheringState]);
-                if (pc.iceConnectionState==='connected' && opts.connected) opts.connected(event);
-                if (pc.iceConnectionState==='disconnected' && opts.connected) opts.disconnected(event);
-    return true;
-}
 pc.ondatachannel = fne;
 pc.onidentityresult = fne;
 pc.onnegotiationneeded = fne;
+*/
+    pc.oniceconnectionstatechange = function(event){
+                /* apparently not fired in google chrome - 25.0.1364.160 */
+                /* fires with XP / Chrome = 27.0.1453.116 m */
+                /* fires with XP / Nightly (mozilla) 24.0a1 */
+                if (pc.iceConnectionState==='connected') fireOnce('connected', pc, opts); 
+                if (pc.iceConnectionState==='disconnected') fireOnce('disconnected', pc, opts); 
+                }
             pc.onicecandidate = function(event) {
-fne(event,33);
-                //if (!event.candidate) { return/* console.log("End of candidates.") */; }
-//    console.log(['ICE',event.type, pc.iceState, pc.iceConnectionState, pc.iceGatheringState,event]);
-//                if (!event.candidate) { console.log('FFOO'); return opts.signalOut && opts.signalOut({type: 'end_of_candidates'}); }
-                if (!event.candidate) { return opts.signalOut && opts.signalOut(undefined); }
+                if (!event.candidate) {
+                    opts.signalOut && opts.signalOut(undefined);
+                    if (/* yuck */ supported==='chrome' && version<27)
+                        fireOnce('connected', pc, opts);
+                    return;
+                    }
                 opts.signalOut && opts.signalOut({type: 'candidate',
                    label: event.candidate.sdpMLineIndex,
                    id: event.candidate.sdpMid,
                    candidate: event.candidate.candidate});
-/*
-*/
                 }
-//            console.log("Created RTCPeerConnnection with:\n" + 
-//                  "  config: \"" + JSON.stringify(pc_config) + "\";\n" + 
-//                  "  constraints: \"" + JSON.stringify(pc_constraints) + "\".");
             } catch (e) {
-//                console.log("Failed to create PeerConnection, exception: " + e.message);
-//                alert("Cannot create RTCPeerConnection object; WebRTC is not supported by this browser.");
                 opts.onSupportFailure && opts.onSupportFailure(e.message);
                 return;
             }
-if (opts.element) { // should this be defined?
-        pc.onaddstream = /*onRemoteStreamAdded*/ function(event) {
-//                console.log("Remote stream added."); 
-//                reattachMediaStream(miniVideo, localVideo);
-            attachMediaStream(opts.element, event.stream);
-            opts.setStream && opts.setStream(event.stream);
-//                waitForRemoteVideo(event.stream); -- this means remote peer has video -- what to do?
-            };
-}
-        pc.onremovestream = function(event) { fne(event);/* console.log("onRemoteStreamRemoved;"); example also doesn't do anything here ... */
+            if (opts.element) {
+                pc.onaddstream = /*onRemoteStreamAdded*/ function(event) {
+                    attachMediaStream(opts.element, event.stream);
+                    opts.setStream && opts.setStream(event.stream);
+                    };
+                }
+            pc.onremovestream = function(event) { /*fne(event,222); console.log("onRemoteStreamRemoved;"); example also doesn't do anything here ... */
             };
         return pc;
     }
 
-/*
-    function maybeStart(how, stream) {
-        setStatus("Connecting...");
-//        console.log("Creating PeerConnection.");
-        var pc = createPeerConnection(how);
-//        console.log("Adding local stream.");
-        pc.addStream(stream);
-//      started = true;
-      // Caller initiates offer to peer.
-        if (how.broadcast)
-            doCall(how, pc);
-        how.setPC && how.setPC(pc);
-    }
-*/
-
     function setStatus(state) {
 //        __elem__.innerHTML = state; -- reference
-    }
-
-    function ______old___doCall(how, pc) {
-        var constraints = {"optional": [], "mandatory": {"MozDontOfferDataChannel": true}};
-        // temporary measure to remove Moz* constraints in Chrome
-        if (supported === "chrome") {
-            for (prop in constraints.mandatory) {
-                if (prop.indexOf("Moz") != -1) {
-                    delete constraints.mandatory[prop];
-                    }
-                }
-            }   
-        constraints = mergeConstraints(constraints, sdpConstraints);
-/*        console.log("Sending offer to peer, with constraints: \n" +
-            "  \"" + JSON.stringify(constraints) + "\".") */
-        pc.createOffer(function(sdp){setLocalAndSendMessage(how, pc, sdp);}, null, constraints);
     }
 
     function mergeConstraints(cons1, cons2) {
@@ -214,16 +181,6 @@ if (opts.element) { // should this be defined?
                 {"audio": true, "video": {"mandatory": {}, "optional": []}},
                 function(stream) /* success */ {
                     opts.element && attachMediaStream(opts.element, stream);
-//        setStatus("Connecting...");
-                    /*var pc = createPeerConnection(opts);
-                    pc.addStream(stream);*/
-//      started = true;
-      // Caller initiates offer to peer.
-//        if (how.broadcast)
-//            doCall(how, pc);
-//                    opts.setPC && opts.setPC(pc);
-//opts.element.style.opacity = 1;
-//console.log(stream);
                     opts.setStream && opts.setStream(stream);
                     },
                 function(error) /* failure */ {
@@ -237,38 +194,12 @@ if (opts.element) { // should this be defined?
     }
 
     /* --- */
-    function old_start(how) {
-        var constraints = {"audio": true, "video": {"mandatory": {}, "optional": []}}; 
-        function onSuccess(stream) {
-
-//    console.log("User has granted access to local media.");
-    // Call the polyfill wrapper to attach the media stream to this element.
-            attachMediaStream(how.element, stream);
-//    element.style.opacity = 1;
-//    localStream = stream;
-    // Caller creates PeerConnection.
-            if (how.broadcast)
-                maybeStart(how, stream);
-            }
-        try {
-//alert("Failed to get access to local media. Error code was " + error.code + ".") --- reference use of error.code
-            getUserMedia(constraints, onSuccess, function(error) { how.onError && how.onError(error.code); });
-//            console.log("Requested access to local media with mediaConstraints:\n" + "  \"" + JSON.stringify(constraints) + "\"");
-        } catch (e) {
-//            alert("getUserMedia() failed. Is this a WebRTC capable browser?");
-//            console.log("getUserMedia failed with exception: " + e.message);
-            how.onSupportFailure && how.onSupportFailure(e.message);
-        }
-    }
-
     function callPeer(stream, opts) {
-//        setStatus("Connecting...");
         var pc = createPeerConnection(opts);
         pc.addStream(stream);
-        //doCall(opts, pc);
         var constraints = {"optional": [], "mandatory": {"MozDontOfferDataChannel": true}};
         // temporary measure to remove Moz* constraints in Chrome
-        if (supported === "chrome") {
+        if (supported !== "firefox") {
             for (prop in constraints.mandatory) {
                 if (prop.indexOf("Moz") != -1) {
                     delete constraints.mandatory[prop];
@@ -276,19 +207,19 @@ if (opts.element) { // should this be defined?
                 }
             }
         constraints = mergeConstraints(constraints, sdpConstraints);
-/*        console.log("Sending offer to peer, with constraints: \n" +
-            "  \"" + JSON.stringify(constraints) + "\".") */
         pc.createOffer(function(sdp){setLocalAndSendMessage(opts, pc, sdp);}, opts.onError, constraints);
     }
 
     function answer(msg, opts) {
         var pc = createPeerConnection(opts);
         var rtcsd = new RTCSessionDescription(msg);
+//console.log(msg);
         pc.setRemoteDescription(rtcsd);
         pc.createAnswer(function(sdp){setLocalAndSendMessage(opts, pc, sdp);}, opts.onError, sdpConstraints);
     }
 
     function setRemoteDescription(pc, msg) {
+//console.log(msg);
         pc.setRemoteDescription(new RTCSessionDescription(msg));
     }
 
@@ -357,6 +288,7 @@ if (opts.element) { // should this be defined?
         if (!msg.sdp)
             return;
         var sdpLines = msg.sdp.split('\r\n');
+        var fmtpLineIndex = null;
 
         // Find opus payload.
         for (var i = 0; i < sdpLines.length; i++) {
@@ -371,7 +303,7 @@ if (opts.element) { // should this be defined?
             if (sdpLines[i].search('a=fmtp') !== -1) {
                 var payload = extractSdp(sdpLines[i], /a=fmtp:(\d+)/ );
                 if (payload === opusPayload) {
-                    var fmtpLineIndex = i;
+                    fmtpLineIndex = i;
                     break;
                     }
                 }
