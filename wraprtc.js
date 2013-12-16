@@ -109,7 +109,7 @@
 */
         try {
             pc = new RTCPeerConnection(pc_config, pc_constraints);
-            opts.setPC && opts.setPC(pc);
+//            opts.setPC && opts.setPC(pc); -- depreciate
 /*
  -- this just for testing / dev ...
 var fne = function(event,marker){console.log(marker,event); return true;}
@@ -196,7 +196,8 @@ pc.onnegotiationneeded = fne;
     /* --- */
     function callPeer(stream, opts) {
         var pc = createPeerConnection(opts);
-        pc.addStream(stream);
+        if (stream)
+            pc.addStream(stream);
         var constraints = {"optional": [], "mandatory": {"MozDontOfferDataChannel": true}};
         // temporary measure to remove Moz* constraints in Chrome
         if (supported !== "firefox") {
@@ -208,18 +209,20 @@ pc.onnegotiationneeded = fne;
             }
         constraints = mergeConstraints(constraints, sdpConstraints);
         pc.createOffer(function(sdp){setLocalAndSendMessage(opts, pc, sdp);}, opts.onError, constraints);
+        opts.setPC && opts.setPC(pc);
     }
 
-    function answer(msg, opts) {
+    function answer(msg, stream, opts) {
         var pc = createPeerConnection(opts);
+        if (stream)
+            pc.addStream(stream);
         var rtcsd = new RTCSessionDescription(msg);
-//console.log(msg);
         pc.setRemoteDescription(rtcsd);
         pc.createAnswer(function(sdp){setLocalAndSendMessage(opts, pc, sdp);}, opts.onError, sdpConstraints);
+        opts.setPC && opts.setPC(pc);
     }
 
     function setRemoteDescription(pc, msg) {
-//console.log(msg);
         pc.setRemoteDescription(new RTCSessionDescription(msg));
     }
 
